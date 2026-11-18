@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard LQA — Seguimiento de Muestreo</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/estilo.css') }}">
+</head>
+<body>
+
+    <header class="encabezado">
+        <div class="encabezado-contenido">
+            <div class="encabezado-titulo">
+                <span class="icono-dashboard">🧪</span>
+                <div>
+                    <h1>Dashboard LQA · Seguimiento de Muestreo</h1>
+                    <p>Laboratorio de Química Agrícola — Instituto Valle Grande (Equipo T07)</p>
+                </div>
+            </div>
+            <div class="acciones-header">
+                <div class="badge-estado">
+                    <span class="punto-vivo"></span> En vivo · Google Sheets
+                </div>
+                <span class="usuario-activo">{{ usuario }}</span>
+                <a href="/logout" class="btn-salir">Cerrar sesión</a>
+            </div>
+        </div>
+
+        <nav class="menu-navegacion">
+            <button id="tab-general-btn" class="tab-btn activo" onclick="cambiarVista('vista-general', this)">
+                📊 Panel General
+            </button>
+            <button class="tab-btn" onclick="cambiarVista('vista-matrices', this)">
+                🧬 Matrices y Muestras <span class="contador-tab azul">{{ total_ensayos }}</span>
+            </button>
+            <button class="tab-btn" onclick="cambiarVista('vista-certificados', this)">
+                📜 Certificados Analizados <span class="contador-tab verde">{{ analizados|length }}</span>
+            </button>
+            <button class="tab-btn" onclick="cambiarVista('vista-proceso', this)">
+                ⏳ Muestras en Proceso <span class="contador-tab ambar">{{ en_proceso|length }}</span>
+            </button>
+            <button class="tab-btn" onclick="cambiarVista('vista-rechazados', this)">
+                ❌ Muestras Rechazadas <span class="contador-tab rojo">{{ rechazados|length }}</span>
+            </button>
+        </nav>
+    </header>
+
+    <main class="contenedor-principal">
+
+        <!-- VISTA 1: PANEL GENERAL -->
+        <div id="vista-general" class="vista-seccion">
+            <section class="contenedor-kpis">
+                <div class="tarjeta-kpi borde-verde">
+                    <h3>Total de Muestras</h3>
+                    <h2>{{ total_registros }}</h2>
+                    <p>{{ total_ensayos }} ensayos analíticos solicitados</p>
+                </div>
+                <div class="tarjeta-kpi borde-azul">
+                    <h3>Total Personas</h3>
+                    <h2>{{ total_personas }}</h2>
+                    <p>Clientes independientes (DNI)</p>
+                </div>
+                <div class="tarjeta-kpi borde-morado">
+                    <h3>Total Empresas</h3>
+                    <h2>{{ total_empresas }}</h2>
+                    <p>Fundos y agroindustrias (RUC)</p>
+                </div>
+                <div class="tarjeta-kpi borde-ambar">
+                    <h3>Matriz Principal</h3>
+                    <h2>{{ matriz_top }}</h2>
+                    <p>Análisis más solicitado</p>
+                </div>
+            </section>
+
+            <section class="contenedor-graficos">
+                <div class="tarjeta-grafico"><div class="grafico-plotly">{{ grafico_barras | safe }}</div></div>
+                <div class="tarjeta-grafico"><div class="grafico-plotly">{{ grafico_dona | safe }}</div></div>
+                <div class="tarjeta-grafico"><div class="grafico-plotly">{{ grafico_categorias | safe }}</div></div>
+                <div class="tarjeta-grafico"><div class="grafico-plotly">{{ grafico_vendedores | safe }}</div></div>
+                <div class="tarjeta-grafico"><div class="grafico-plotly">{{ grafico_documentos | safe }}</div></div>
+                <div class="tarjeta-grafico"><div class="grafico-plotly">{{ grafico_dominios | safe }}</div></div>
+            </section>
+
+            {% if registros %}
+            <section class="tarjeta-tabla" id="seccionBitacora">
+                <div class="tabla-header">
+                    <div>
+                        <h3>Bitácora General de Cadena de Custodia</h3>
+                        <p>Filtra por estado o tipo de muestra, o exporta a Hoja de Cálculo</p>
+                    </div>
+                    <div class="controles-tabla">
+                        <select id="filtroEstado" onchange="aplicarFiltrosGenerales()">
+                            <option value="">Todos los estados</option>
+                            <option value="aprobado">Aprobado</option>
+                            <option value="finalizado">Análisis Finalizado</option>
+                            <option value="proceso">En Proceso</option>
+                            <option value="rechazado">Rechazado</option>
+                        </select>
+                        <input type="text" id="buscador" onkeyup="aplicarFiltrosGenerales()" placeholder="Buscar cliente, muestra, DNI...">
+                        <button type="button" id="btnExportarSheets" class="btn-exportar" onclick="exportarGoogleSheets()">
+                            📊 Exportar a Hoja de Cálculo
+                        </button>
+                    </div>
+                </div>
+
+                <div class="tabla-scroll">
+                    <table id="tablaMuestras">
+                        <thead>
+                            <tr>
+                                <th>Fecha / Hora</th>
+                                <th>Cliente / Empresa</th>
+                                <th>DNI / RUC</th>
+                                <th>Procedencia</th>
+                                <th>Tipo de Muestra</th>
+                                <th>Estado</th>
+                                <th>Observaciones / Motivo</th>
+                                <th>Plantilla</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for fila in registros %}
+                            <tr>
+                                <td>{{ fila.fecha }}</td>
+                                <td title="{{ fila.cliente }}"><strong>{{ fila.cliente }}</strong></td>
+                                <td><code>{{ fila.documento }}</code></td>
+                                <td title="{{ fila.procedencia }}">{{ fila.procedencia }}</td>
+                                <td title="{{ fila.muestra }}"><span class="badge-matriz">{{ fila.muestra }}</span></td>
+                                <td>
+                                    <span class="badge {{ 'badge-rechazado' if 'Rechazado' in fila.estado else ('badge-aprobado' if 'Aprobado' in fila.estado or 'Finalizado' in fila.estado else 'badge-proceso') }}">
+                                        {{ fila.estado }}
+                                    </span>
+                                </td>
+                                <td title="{{ fila.observacion }}">{{ fila.observacion }}</td>
+                                <td>
+                                    <a href="/cadena_custodia/{{ fila.id }}" target="_blank" class="btn-cert" style="background-color: #0284c7;">📋 Cadena</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            {% endif %}
+        </div>
+
+        <!-- VISTA 2: PANEL DE MATRICES Y MUESTRAS -->
+        <div id="vista-matrices" class="vista-seccion" style="display: none;">
+            <div class="banner-matrices">
+                <div>
+                    <h2>🧬 Inventario Analítico por Tipo de Muestra</h2>
+                    <p>Desglose individual de los <strong>{{ total_registros }} ingresos</strong> recibidos (sumando <strong>{{ total_ensayos }} ensayos</strong> en {{ tarjetas_matrices|length }} matrices de laboratorio). Haz clic en cualquier tarjeta para ver sus registros.</p>
+                </div>
+                <div class="resumen-banner-pills">
+                    <div class="pill-stat"><span>Ingresos</span><strong>{{ total_registros }}</strong></div>
+                    <div class="pill-stat"><span>Ensayos Totales</span><strong>{{ total_ensayos }}</strong></div>
+                    <div class="pill-stat"><span>Tipos de Matriz</span><strong>{{ tarjetas_matrices|length }}</strong></div>
+                </div>
+            </div>
+
+            <section class="contenedor-graficos">
+                <div class="tarjeta-grafico"><div class="grafico-plotly">{{ graf_mat_barras | safe }}</div></div>
+                <div class="tarjeta-grafico"><div class="grafico-plotly">{{ graf_mat_dona | safe }}</div></div>
+            </section>
+
+            <section class="grid-matrices-cards">
+                {% for item in tarjetas_matrices %}
+                <div class="card-matriz"
+                     data-color="{{ item.color }}"
+                     data-nombre="{{ item.nombre }}"
+                     onclick="irAFiltrarMatriz(this.dataset.nombre)">
+                    <div class="card-matriz-top">
+                        <span class="card-matriz-nombre">{{ item.nombre }}</span>
+                        <span class="card-matriz-badge">{{ item.cantidad }}</span>
+                    </div>
+                    <div class="barra-progreso-bg">
+                        <div class="barra-progreso-fill" data-porcentaje="{{ item.porcentaje }}"></div>
+                    </div>
+                    <div class="card-matriz-footer">
+                        <span><strong>{{ item.porcentaje }}%</strong> del total</span>
+                        <div class="mini-estados">
+                            <span title="Aprobados / Finalizados">✅ {{ item.aprobados }}</span>
+                            <span title="En Proceso">⏳ {{ item.proceso }}</span>
+                            <span title="Rechazados">❌ {{ item.rechazados }}</span>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </section>
+        </div>
+
+        <!-- VISTA 3: CERTIFICADOS ANALIZADOS -->
+        <div id="vista-certificados" class="vista-seccion" style="display: none;">
+            <section class="tarjeta-tabla">
+                <div class="tabla-header">
+                    <div>
+                        <h3>📜 Certificados de Muestras Analizadas y Aprobadas ({{ analizados|length }})</h3>
+                        <p>Emite el certificado oficial con QR, abre la Cadena de Custodia o envíalo por correo</p>
+                    </div>
+                    <input type="text" id="buscadorCert" onkeyup="filtrarTablaSimple('buscadorCert', 'tablaCertificados')" placeholder="Buscar certificado o cliente...">
+                </div>
+
+                <div class="tabla-scroll" style="max-height: 440px;">
+                    <table id="tablaCertificados">
+                        <thead>
+                            <tr>
+                                <th>N° Certificado</th>
+                                <th>Cliente / Empresa</th>
+                                <th>DNI / RUC</th>
+                                <th>Tipo de Muestra</th>
+                                <th>Estado</th>
+                                <th>Observación Técnica</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for fila in analizados %}
+                            <tr>
+                                <td><code>{{ fila.codigo_cert }}</code></td>
+                                <td title="{{ fila.cliente }}"><strong>{{ fila.cliente }}</strong></td>
+                                <td><code>{{ fila.documento }}</code></td>
+                                <td title="{{ fila.muestra }}"><span class="badge-matriz">{{ fila.muestra }}</span></td>
+                                <td><span class="badge badge-aprobado">{{ fila.estado }}</span></td>
+                                <td title="{{ fila.observacion }}">{{ fila.observacion }}</td>
+                                <td style="max-width: none; display: flex; gap: 6px; flex-wrap: wrap;">
+                                    <a href="/certificado/{{ fila.id }}" target="_blank" class="btn-cert">📄 PDF + QR</a>
+                                    <a href="/cadena_custodia/{{ fila.id }}" target="_blank" class="btn-cert" style="background-color: #0284c7;">📋 Cadena Custodia</a>
+                                    {% if fila.correo %}
+                                    <button type="button" class="btn-mail"
+                                        data-correo="{{ fila.correo }}"
+                                        data-codigo="{{ fila.codigo_cert }}"
+                                        data-cliente="{{ fila.cliente }}"
+                                        data-muestra="{{ fila.muestra }}"
+                                        data-estado="{{ fila.estado }}"
+                                        data-obs="{{ fila.observacion }}"
+                                        data-url="{{ fila.url_publica }}"
+                                        onclick="enviarCorreoCertificado(this)">
+                                        ✉️ Avisar
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="7" style="text-align:center; padding: 1.5rem; color: #64748b;">
+                                    Aún no hay muestras con estado "Análisis Finalizado" o "Aprobado".
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- VISTA 4: MUESTRAS EN PROCESO -->
+        <div id="vista-proceso" class="vista-seccion" style="display: none;">
+            <section class="tarjeta-tabla">
+                <div class="tabla-header">
+                    <div>
+                        <h3>⏳ Muestras en Proceso ({{ en_proceso|length }}) — Actualización Rápida</h3>
+                        <p>Cambia el estado y registra la observación para guardarlo directo en Google Sheets</p>
+                    </div>
+                    <input type="text" id="buscadorProc" onkeyup="filtrarTablaSimple('buscadorProc', 'tablaProceso')" placeholder="Buscar muestra en proceso...">
+                </div>
+
+                <div class="tabla-scroll" style="max-height: 460px;">
+                    <table id="tablaProceso">
+                        <thead>
+                            <tr>
+                                <th>Fecha Recepción</th>
+                                <th>Cliente / Empresa</th>
+                                <th>Tipo de Muestra</th>
+                                <th>Nuevo Estado</th>
+                                <th>Observación Técnica</th>
+                                <th>Guardar</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for fila in en_proceso %}
+                            <tr>
+                                <td>{{ fila.fecha }}</td>
+                                <td title="{{ fila.cliente }}"><strong>{{ fila.cliente }}</strong></td>
+                                <td title="{{ fila.muestra }}"><span class="badge-matriz">{{ fila.muestra }}</span></td>
+                                <td colspan="3" style="max-width: none;">
+                                    <form action="/actualizar_muestra" method="POST" class="form-inline-sheets">
+                                        <input type="hidden" name="fecha" value="{{ fila.fecha }}">
+                                        <select name="estado" class="select-inline">
+                                            <option value="En Proceso" selected>En Proceso</option>
+                                            <option value="Aprobado">Aprobado</option>
+                                            <option value="Análisis Finalizado">Análisis Finalizado</option>
+                                            <option value="Rechazado">Rechazado</option>
+                                        </select>
+                                        <input type="text" name="observacion" class="input-obs-inline" value="{{ '' if fila.observacion == 'Sin observaciones' else fila.observacion }}" placeholder="Escribe dictamen u observación...">
+                                        <button type="submit" class="btn-guardar-inline">💾 Guardar</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" style="text-align:center; padding: 1.5rem; color: #64748b;">
+                                    No hay muestras pendientes en estado "En Proceso".
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- VISTA 5: MUESTRAS RECHAZADAS -->
+        <div id="vista-rechazados" class="vista-seccion" style="display: none;">
+            <section class="tarjeta-tabla">
+                <div class="tabla-header">
+                    <div>
+                        <h3>❌ Muestras Rechazadas ({{ rechazados|length }}) — Constancias de No Conformidad</h3>
+                        <p>Emite la constancia oficial de rechazo con QR, abre la Cadena de Custodia o envíala por correo</p>
+                    </div>
+                    <input type="text" id="buscadorRech" onkeyup="filtrarTablaSimple('buscadorRech', 'tablaRechazados')" placeholder="Buscar muestra rechazada...">
+                </div>
+
+                <div class="tabla-scroll" style="max-height: 440px;">
+                    <table id="tablaRechazados">
+                        <thead>
+                            <tr>
+                                <th>N° Constancia</th>
+                                <th>Cliente / Empresa</th>
+                                <th>DNI / RUC</th>
+                                <th>Tipo de Muestra</th>
+                                <th>Estado</th>
+                                <th>Motivo del Rechazo</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for fila in rechazados %}
+                            <tr>
+                                <td><code>{{ fila.codigo_cert }}</code></td>
+                                <td title="{{ fila.cliente }}"><strong>{{ fila.cliente }}</strong></td>
+                                <td><code>{{ fila.documento }}</code></td>
+                                <td title="{{ fila.muestra }}"><span class="badge-matriz">{{ fila.muestra }}</span></td>
+                                <td><span class="badge badge-rechazado">{{ fila.estado }}</span></td>
+                                <td title="{{ fila.observacion }}">{{ fila.observacion }}</td>
+                                <td style="max-width: none; display: flex; gap: 6px; flex-wrap: wrap;">
+                                    <a href="/certificado/{{ fila.id }}" target="_blank" class="btn-cert-rojo">📄 Constancia + QR</a>
+                                    <a href="/cadena_custodia/{{ fila.id }}" target="_blank" class="btn-cert" style="background-color: #0284c7;">📋 Cadena Custodia</a>
+                                    {% if fila.correo %}
+                                    <button type="button" class="btn-mail"
+                                        data-correo="{{ fila.correo }}"
+                                        data-codigo="{{ fila.codigo_cert }}"
+                                        data-cliente="{{ fila.cliente }}"
+                                        data-muestra="{{ fila.muestra }}"
+                                        data-estado="{{ fila.estado }}"
+                                        data-obs="{{ fila.observacion }}"
+                                        data-url="{{ fila.url_publica }}"
+                                        onclick="enviarCorreoCertificado(this)">
+                                        ✉️ Avisar
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="7" style="text-align:center; padding: 1.5rem; color: #64748b;">
+                                    No hay muestras con estado "Rechazado" en Panel_Seguimiento.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+    </main>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            document.querySelectorAll(".card-matriz").forEach(card => {
+                const color = card.dataset.color || "#059669";
+                card.style.borderTop = `4px solid ${color}`;
+                const badge = card.querySelector(".card-matriz-badge");
+                const fill = card.querySelector(".barra-progreso-fill");
+                if (badge) badge.style.backgroundColor = color;
+                if (fill) {
+                    fill.style.backgroundColor = color;
+                    fill.style.width = `${fill.dataset.porcentaje || 0}%`;
+                }
+            });
+        });
+
+        function normalizarTexto(txt) {
+            return (txt || "")
+                .toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .replace(/emfermedades/g, "enfermedades");
+        }
+
+        function cambiarVista(idVista, boton) {
+            document.querySelectorAll('.vista-seccion').forEach(sec => sec.style.display = 'none');
+            document.getElementById(idVista).style.display = 'block';
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('activo'));
+            boton.classList.add('activo');
+            window.dispatchEvent(new Event('resize'));
+        }
+
+        function irAFiltrarMatriz(nombreMatriz) {
+            cambiarVista('vista-general', document.getElementById('tab-general-btn'));
+            const input = document.getElementById("buscador");
+            input.value = nombreMatriz;
+            aplicarFiltrosGenerales();
+            document.getElementById("seccionBitacora").scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+
+        function aplicarFiltrosGenerales() {
+            const texto = normalizarTexto(document.getElementById("buscador").value);
+            const estadoSel = normalizarTexto(document.getElementById("filtroEstado").value);
+            const filas = document.querySelectorAll("#tablaMuestras tbody tr");
+
+            filas.forEach(fila => {
+                const contenido = normalizarTexto(fila.textContent);
+                const coincideTexto = contenido.includes(texto);
+                const coincideEstado = !estadoSel || contenido.includes(estadoSel);
+                fila.style.display = (coincideTexto && coincideEstado) ? "" : "none";
+            });
+        }
+
+        function filtrarTablaSimple(idInput, idTabla) {
+            const texto = normalizarTexto(document.getElementById(idInput).value);
+            const filas = document.querySelectorAll(`#${idTabla} tbody tr`);
+            filas.forEach(fila => {
+                fila.style.display = normalizarTexto(fila.textContent).includes(texto) ? "" : "none";
+            });
+        }
+
+        function enviarCorreoCertificado(btn) {
+            const correo = btn.dataset.correo;
+            const codigo = btn.dataset.codigo;
+            const cliente = btn.dataset.cliente;
+            const muestra = btn.dataset.muestra;
+            const estado = btn.dataset.estado;
+            const obs = btn.dataset.obs;
+            const urlCert = btn.dataset.url;
+
+            const esRechazado = estado.toLowerCase().includes("rechazado");
+            const tipoDoc = esRechazado ? "Constancia Oficial de Rechazo" : `Certificado Oficial (${estado})`;
+            const asunto = `${tipoDoc} - ${codigo} | LQA Valle Grande`;
+
+            const cuerpo =
+`Estimado/a ${cliente},
+
+Le informamos desde el Laboratorio de Química Agrícola (LQA - Instituto Valle Grande) el dictamen de su muestra:
+
+- Código de Registro: ${codigo}
+- Tipo de Análisis: ${muestra}
+- Estado de Control: ${estado.toUpperCase()}
+- Dictamen / Observación: ${obs}
+
+Puede ver y descargar su ${tipoDoc} con código QR de verificación en el siguiente enlace:
+${urlCert}
+
+Atentamente,
+Laboratorio de Química Agrícola (LQA)
+Instituto de Educación Superior Valle Grande`;
+
+            window.location.href = `mailto:${encodeURIComponent(correo)}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+        }
+
+        async function exportarGoogleSheets() {
+            const btn = document.getElementById("btnExportarSheets");
+            const textoOriginal = btn.innerText;
+            btn.innerText = "⏳ Exportando...";
+            btn.disabled = true;
+
+            const filasVisibles = [];
+            document.querySelectorAll("#tablaMuestras tr").forEach(fila => {
+                if (fila.style.display !== "none") {
+                    const cols = fila.querySelectorAll("th, td");
+                    const row = [];
+                    cols.forEach(col => row.push(col.innerText.trim()));
+                    filasVisibles.push(row);
+                }
+            });
+
+            try {
+                const resp = await fetch("/exportar_sheets", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filas: filasVisibles })
+                });
+                const data = await resp.json();
+                if (data.ok && data.url) {
+                    window.open(data.url, "_blank");
+                } else {
+                    alert("No se pudo exportar a Google Sheets.");
+                }
+            } catch (err) {
+                alert("Error de conexión al exportar a Hoja de Cálculo.");
+            } finally {
+                btn.innerText = textoOriginal;
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
