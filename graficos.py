@@ -3,7 +3,7 @@ import plotly.graph_objects as go
 from analisis import procesar_datos
 
 
-def _layout_base(titulo, x_titulo="", y_titulo="N° de registros", altura=310):
+def _layout_base(titulo, x_titulo="", y_titulo="N° de registros", altura=320):
     return dict(
         title=dict(
             text=titulo,
@@ -13,7 +13,7 @@ def _layout_base(titulo, x_titulo="", y_titulo="N° de registros", altura=310):
         ),
         autosize=True,
         height=altura,
-        margin=dict(l=48, r=24, t=48, b=45),
+        margin=dict(l=48, r=24, t=48, b=58),
         paper_bgcolor="#ffffff",
         plot_bgcolor="#ffffff",
         font=dict(family="Segoe UI, Arial, sans-serif", size=11, color="#475569"),
@@ -21,14 +21,16 @@ def _layout_base(titulo, x_titulo="", y_titulo="N° de registros", altura=310):
             title=x_titulo,
             showgrid=False,
             linecolor="#e2e8f0",
-            tickfont=dict(size=10, color="#64748b")
+            tickfont=dict(size=10, color="#64748b"),
+            automargin=True
         ),
         yaxis=dict(
             title=y_titulo,
             showgrid=True,
             gridcolor="#f1f5f9",
             zeroline=False,
-            tickfont=dict(size=10, color="#64748b")
+            tickfont=dict(size=10, color="#64748b"),
+            automargin=True
         ),
         hoverlabel=dict(bgcolor="#0f172a", font_color="#ffffff", font_size=11)
     )
@@ -48,13 +50,16 @@ def grafico_barras(df):
         return _sin_datos(titulo)
 
     series = df["Tipo de Muestra"].dropna().astype(str).str.split(",").explode().str.strip()
-    series = series[series != ""]
-    conteo = series.value_counts().head(7)
+    series = series[(series != "") & (series.str.lower() != "nan")]
+    conteo = series.value_counts().head(6)
     if conteo.empty:
         return _sin_datos(titulo)
 
     etiquetas = [
-        e.replace("Análisis de ", "").replace("Diagnostico de Emfermedades", "Diagnóstico Enf.")
+        e.replace("Análisis de ", "")
+         .replace("Análisis ", "")
+         .replace("Diagnostico de Emfermedades", "Diag. Enf.")
+         .replace("Enmienda Inorgánica", "Enmienda")[:14]
         for e in conteo.index
     ]
     valores = conteo.values.tolist()
@@ -62,14 +67,16 @@ def grafico_barras(df):
     fig = go.Figure(go.Bar(
         x=etiquetas,
         y=valores,
-        width=0.45,
+        width=0.5,
         text=valores,
         textposition="inside",
         insidetextanchor="end",
         textfont=dict(color="#ffffff", size=11, family="Segoe UI, sans-serif"),
         marker=dict(color="#0a2e46")
     ))
-    fig.update_layout(**_layout_base(titulo, x_titulo="Matriz de análisis", y_titulo="Cantidad"))
+    layout = _layout_base(titulo, x_titulo="Matriz de análisis", y_titulo="Cantidad")
+    layout["xaxis"]["tickangle"] = -20
+    fig.update_layout(**layout)
     return fig
 
 
@@ -79,7 +86,9 @@ def grafico_dona(df):
     if df is None or df.empty or "Tipo de Cliente" not in df.columns:
         return _sin_datos(titulo)
 
-    conteo = df["Tipo de Cliente"].fillna("Persona").value_counts()
+    serie = df["Tipo de Cliente"].dropna().astype(str).str.strip()
+    serie = serie[(serie != "") & (serie.str.lower() != "nan")]
+    conteo = serie.value_counts()
     colores = ["#16a34a", "#f59e0b", "#64748b", "#ef4444"]
 
     fig = go.Figure(go.Pie(
@@ -92,8 +101,8 @@ def grafico_dona(df):
         hovertemplate="<b>%{label}</b><br>Registros: %{value}<br>Porcentaje: %{percent}<extra></extra>"
     ))
     layout = _layout_base(titulo)
-    layout["margin"] = dict(l=20, r=20, t=48, b=25)
-    layout["legend"] = dict(orientation="v", x=0.80, y=0.75, font=dict(size=11, color="#334155"))
+    layout["margin"] = dict(l=15, r=15, t=48, b=35)
+    layout["legend"] = dict(orientation="h", x=0.5, xanchor="center", y=-0.08, font=dict(size=11, color="#334155"))
     fig.update_layout(**layout)
     return fig
 
@@ -125,10 +134,7 @@ def grafico_categorias(df, registros=None):
 
     df_f = pd.DataFrame(filas)
     fechas_ord = sorted(df_f["dt"].unique())
-    etiquetas_x = [
-        f.strftime("%b %d\n%Y") if i == 0 else f.strftime("%b %d")
-        for i, f in enumerate(fechas_ord)
-    ]
+    etiquetas_x = [f.strftime("%d/%m") for f in fechas_ord]
 
     series_cfg = [
         ("Aprobados", "#16a34a"),
@@ -147,12 +153,14 @@ def grafico_categorias(df, registros=None):
             mode="lines+markers",
             name=nombre_cat,
             line=dict(color=color, width=2),
-            marker=dict(size=5, color=color)
+            marker=dict(size=6, color=color)
         ))
 
     layout = _layout_base(titulo, x_titulo="Fecha", y_titulo="N° de registros")
-    layout["margin"] = dict(l=48, r=105, t=48, b=50)
-    layout["legend"] = dict(orientation="v", x=1.02, y=0.95, font=dict(size=10, color="#334155"))
+    layout["margin"] = dict(l=45, r=15, t=48, b=55)
+    layout["xaxis"]["type"] = "category"
+    layout["xaxis"]["tickangle"] = -30
+    layout["legend"] = dict(orientation="h", x=0.5, xanchor="center", y=-0.25, font=dict(size=10, color="#334155"))
     fig.update_layout(**layout)
     return fig
 
@@ -163,8 +171,8 @@ def grafico_vendedores(df):
     if df is None or df.empty or "Provincia" not in df.columns:
         return _sin_datos(titulo)
 
-    conteo = df["Provincia"].dropna().astype(str).str.strip()
-    conteo = conteo[conteo != ""].value_counts().head(6)
+    conteo = df["Provincia"].dropna().astype(str).str.strip().str.title()
+    conteo = conteo[(conteo != "") & (conteo.str.lower() != "nan")].value_counts().head(6)
     if conteo.empty:
         return _sin_datos(titulo)
 
@@ -188,9 +196,9 @@ def grafico_documentos(df):
     if df is None or df.empty or "Tipo de Cliente" not in df.columns:
         return _sin_datos(titulo)
 
-    mapeo = df["Tipo de Cliente"].fillna("Persona").map(
-        lambda x: "RUC (Empresa)" if "Empresa" in str(x) else "DNI (Persona)"
-    )
+    serie = df["Tipo de Cliente"].dropna().astype(str).str.strip()
+    serie = serie[(serie != "") & (serie.str.lower() != "nan")]
+    mapeo = serie.map(lambda x: "RUC (Empresa)" if "Empresa" in x else "DNI (Persona)")
     conteo = mapeo.value_counts()
 
     fig = go.Figure(go.Pie(
@@ -202,8 +210,8 @@ def grafico_documentos(df):
         marker=dict(colors=["#0a2e46", "#f59e0b"], line=dict(color="#ffffff", width=2))
     ))
     layout = _layout_base(titulo)
-    layout["margin"] = dict(l=20, r=20, t=48, b=25)
-    layout["legend"] = dict(orientation="v", x=0.78, y=0.75, font=dict(size=11, color="#334155"))
+    layout["margin"] = dict(l=15, r=15, t=48, b=35)
+    layout["legend"] = dict(orientation="h", x=0.5, xanchor="center", y=-0.08, font=dict(size=11, color="#334155"))
     fig.update_layout(**layout)
     return fig
 
@@ -221,7 +229,7 @@ def grafico_dominios(df):
     if not col_dist:
         return _sin_datos(titulo)
 
-    conteo = df[col_dist].dropna().astype(str).str.strip()
+    conteo = df[col_dist].dropna().astype(str).str.strip().str.title()
     conteo = conteo[(conteo != "") & (conteo.str.lower() != "nan")].value_counts().head(6)
     if conteo.empty:
         return _sin_datos(titulo)

@@ -18,7 +18,7 @@ def _normalizar_fecha(fecha):
 
 
 def obtener_datos():
-    """Conecta a Google Sheets (hoja principal)."""
+    """Conecta a Google Sheets (hoja principal: Respuestas de formulario 2)."""
     if os.path.exists(CREDENTIALS_PATH) and os.path.getsize(CREDENTIALS_PATH) > 10:
         try:
             cliente = gspread.service_account(filename=CREDENTIALS_PATH)
@@ -30,51 +30,43 @@ def obtener_datos():
 
 
 def obtener_seguimiento():
-    """Lee la pestaña Panel_Seguimiento para obtener Estado y Observaciones."""
+    """Lee la hoja principal (Respuestas de formulario 2) donde están las columnas W, X, Y."""
     if os.path.exists(CREDENTIALS_PATH) and os.path.getsize(CREDENTIALS_PATH) > 10:
         try:
             cliente = gspread.service_account(filename=CREDENTIALS_PATH)
             archivo = cliente.open_by_key(SPREADSHEET_ID)
-            return archivo.worksheet("Panel_Seguimiento").get_all_values()
+            return archivo.sheet1.get_all_values()
         except Exception as e:
-            print(f"[Aviso Panel_Seguimiento] {e}")
+            print(f"[Aviso Seguimiento] {e}")
     return []
 
 
 def actualizar_seguimiento(fecha_registro, nuevo_estado, nueva_observacion):
-    """Busca la fila por Marca Temporal en Panel_Seguimiento y actualiza Estado y Observación."""
+    """Busca la fila por Marca Temporal en la hoja principal y actualiza Estado (W), Observación (X) y Fecha (Y)."""
     if os.path.exists(CREDENTIALS_PATH) and os.path.getsize(CREDENTIALS_PATH) > 10:
         try:
             cliente = gspread.service_account(filename=CREDENTIALS_PATH)
             archivo = cliente.open_by_key(SPREADSHEET_ID)
-            hoja_seg = archivo.worksheet("Panel_Seguimiento")
-            filas = hoja_seg.get_all_values()
+            hoja = archivo.sheet1
+            filas = hoja.get_all_values()
 
             fecha_buscada = _normalizar_fecha(fecha_registro)
             ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
             for idx, fila in enumerate(filas[1:], start=2):
                 if fila and _normalizar_fecha(fila[0]) == fecha_buscada:
-                    hoja_seg.update(
-                        range_name=f"G{idx}:I{idx}",
+                    hoja.update(
+                        range_name=f"W{idx}:Y{idx}",
                         values=[[nuevo_estado, nueva_observacion, f"Actualizado: {ahora}"]]
                     )
                     return True
-
-            filas_hoja1 = archivo.sheet1.get_all_values()
-            for fila_h1 in filas_hoja1[1:]:
-                if fila_h1 and _normalizar_fecha(fila_h1[0]) == fecha_buscada:
-                    datos_base = (fila_h1 + ["", "", "", "", "", ""])[:6]
-                    nueva_fila = datos_base + [nuevo_estado, nueva_observacion, f"Actualizado: {ahora}"]
-                    hoja_seg.append_row(nueva_fila)
-                    return True
         except Exception as e:
-            print(f"[Error al actualizar Panel_Seguimiento] {e}")
+            print(f"[Error al actualizar Seguimiento] {e}")
     return False
 
 
 def exportar_a_hoja_calculo(filas_datos):
-    """Crea una pestaña de reporte en Google Sheets con los registros filtrados y devuelve su URL."""
+    """Crea una pestaña de reporte en Google Sheets con los registros filtrados y devuelve su URL en PDF."""
     if os.path.exists(CREDENTIALS_PATH) and os.path.getsize(CREDENTIALS_PATH) > 10:
         try:
             cliente = gspread.service_account(filename=CREDENTIALS_PATH)
@@ -82,10 +74,10 @@ def exportar_a_hoja_calculo(filas_datos):
             nombre_pestana = f"Reporte_LQA_{datetime.now().strftime('%d%m_%H%M%S')}"
             nueva_hoja = archivo.add_worksheet(title=nombre_pestana, rows=len(filas_datos) + 5, cols=10)
             nueva_hoja.update(range_name="A1", values=filas_datos)
-            return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid={nueva_hoja.id}"
+            return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=pdf&gid={nueva_hoja.id}&portrait=false&fitw=true"
         except Exception as e:
             print(f"[Error exportando a Google Sheets] {e}")
-    return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit"
+    return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=pdf&portrait=false&fitw=true"
 
 
 def _codigo_matriz(nombre_muestra):
@@ -116,9 +108,9 @@ def _buscar_col_checkbox(fila, col_inicio):
 
 
 def rellenar_cadena_custodia(datos):
-    """Genera la Cadena de Custodia en Google Sheets con todos los campos, checkboxes y formato encuadrado."""
+    """Genera la Cadena de Custodia en Google Sheets con todos los campos, checkboxes y devuelve su URL en PDF."""
     if not (os.path.exists(CREDENTIALS_PATH) and os.path.getsize(CREDENTIALS_PATH) > 10):
-        return f"https://docs.google.com/spreadsheets/d/{CERTIFICADO_SHEET_ID}/edit"
+        return f"https://docs.google.com/spreadsheets/d/{CERTIFICADO_SHEET_ID}/export?format=pdf&portrait=true&fitw=true"
 
     try:
         cliente = gspread.service_account(filename=CREDENTIALS_PATH)
@@ -139,7 +131,7 @@ def rellenar_cadena_custodia(datos):
                 except Exception:
                     pass
                 hoja_trabajo = nuevo_libro.sheet1
-                url_final = f"https://docs.google.com/spreadsheets/d/{nuevo_libro.id}/edit"
+                url_final = f"https://docs.google.com/spreadsheets/d/{nuevo_libro.id}/export?format=pdf&portrait=true&fitw=true"
                 es_archivo_aparte = True
             except Exception as e_carpeta:
                 print(f"[Aviso carpeta aparte] {e_carpeta}")
@@ -151,7 +143,7 @@ def rellenar_cadena_custodia(datos):
             res_copia = archivo_plantilla.sheet1.copy_to(SPREADSHEET_ID)
             hoja_trabajo = archivo_principal.get_worksheet_by_id(res_copia["sheetId"])
             hoja_trabajo.update_title(f"Cadena_{datos.get('ID', 'LQA')}_{datetime.now().strftime('%H%M%S')}")
-            url_final = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid={hoja_trabajo.id}"
+            url_final = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=pdf&gid={hoja_trabajo.id}&portrait=true&fitw=true"
 
         # 3. Reemplazar marcadores {{...}}
         reemplazos = {
@@ -329,12 +321,12 @@ def rellenar_cadena_custodia(datos):
         if formatos:
             hoja_trabajo.batch_format(formatos)
 
-        print(f"[OK] Cadena de custodia perfeccionada: {nombre_doc}")
+        print(f"[OK] Cadena de custodia perfeccionada en PDF: {nombre_doc}")
         return url_final
 
     except Exception as e:
         print(f"[ERROR CRÍTICO al rellenar Plantilla_T07]: {e}")
-        return f"https://docs.google.com/spreadsheets/d/{CERTIFICADO_SHEET_ID}/edit"
+        return f"https://docs.google.com/spreadsheets/d/{CERTIFICADO_SHEET_ID}/export?format=pdf&portrait=true&fitw=true"
 
 
 if __name__ == "__main__":

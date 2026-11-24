@@ -10,6 +10,16 @@ def validar_dataframe(df):
         raise ValueError("El DataFrame recibido está vacío (0 registros).")
 
 
+def limpiar_valor_celda(valor):
+    """Convierte a texto limpio y detecta errores de fórmula de Google Sheets."""
+    if pd.isna(valor):
+        return ""
+    texto = str(valor).strip()
+    if texto.startswith("#") and texto.endswith("!"):  # Ej. #REF!, #VALUE!, #N/A
+        raise ValueError(f"La celda contiene un error de fórmula de Google Sheets: '{texto}'")
+    return texto
+
+
 def contar_registros(df):
     try:
         validar_dataframe(df)
@@ -25,7 +35,6 @@ def contar_estado(df, columna, valor_buscado):
         if columna not in df.columns:
             raise KeyError(f"La columna '{columna}' no existe en la hoja.")
 
-        # Normalizamos a texto, quitamos espacios y comparamos sin importar mayúsculas
         serie_limpia = df[columna].fillna("").astype(str).str.strip().str.lower()
         return int((serie_limpia == str(valor_buscado).strip().lower()).sum())
 
@@ -37,23 +46,31 @@ def contar_estado(df, columna, valor_buscado):
         return 0
 
 
-def agrupar_por_tipo(df):
+def agrupar_por_columna(df, columna, etiqueta_vacio="No especificado"):
+    """Agrupa y cuenta valores válidos de una columna controlando errores de Sheets."""
+    conteo = {}
     try:
         validar_dataframe(df)
-        columna = "Tipo de Cliente"
         if columna not in df.columns:
             raise KeyError(f"Falta la columna obligatoria '{columna}'.")
 
-        tipos = df[columna].fillna("").astype(str).str.strip()
-        # Reemplazamos celdas vacías para hacerlas visibles en el reporte
-        tipos = tipos.replace("", "No especificado")
-        return tipos.value_counts().to_dict()
+        for numero, valor in enumerate(df[columna], start=2):
+            try:
+                texto = limpiar_valor_celda(valor)
+                if texto == "":
+                    texto = etiqueta_vacio
+                conteo[texto] = conteo.get(texto, 0) + 1
+            except ValueError as e:
+                print(f"[Fila {numero} - {columna}]: {e}")
+                conteo["Error en Hoja (#REF!)"] = conteo.get("Error en Hoja (#REF!)", 0) + 1
+
+        return conteo
 
     except KeyError as e:
-        print(f"[Error agrupar_por_tipo]: {e}")
+        print(f"[Error agrupar_por_columna]: {e}")
         return {}
     except (TypeError, ValueError) as e:
-        print(f"[Aviso agrupar_por_tipo]: {e}")
+        print(f"[Aviso agrupar_por_columna]: {e}")
         return {}
 
 
@@ -65,14 +82,14 @@ def agrupar_por_dominio_correo(df):
             raise KeyError(f"Falta la columna '{columna}'.")
 
         dominios_validos = []
-        for numero, valor in enumerate(df[columna], start=2):  # start=2 por fila de Google Sheets
+        for numero, valor in enumerate(df[columna], start=2):
             try:
-                if pd.isna(valor) or str(valor).strip() == "":
+                correo = limpiar_valor_celda(valor).lower()
+                if correo == "":
                     dominios_validos.append("Sin Correo")
                     continue
 
-                correo = str(valor).strip().lower()
-                # Regla de negocio: debe tener '@' y un punto después del '@'
+                # Regla de negocio: formato básico de correo electrónico
                 if "@" not in correo or "." not in correo.split("@")[-1]:
                     raise ValueError(f"Formato de correo inválido: '{correo}'")
 
@@ -93,51 +110,47 @@ def agrupar_por_dominio_correo(df):
         return {}
 
 
-def validar_documento_serie(serie, longitud_esperada, nombre_doc):
-    """Valida fila por fila que un documento (DNI/RUC) sea numérico y tenga la longitud exacta."""
-    validos = 0
-    for numero, valor in enumerate(serie, start=2):
-        try:
-            if pd.isna(valor) or str(valor).strip() == "":
-                continue  # Celda vacía, simplemente no se cuenta
-
-            doc_limpio = str(valor).strip()
-            # Si Sheets leyó un número como float (ej. '12345678.0'), quitamos el '.0'
-            if doc_limpio.endswith(".0"):
-                doc_limpio = doc_limpio[:-2]
-
-            if not doc_limpio.isdigit():
-                raise ValueError(f"{nombre_doc} contiene letras o símbolos ('{doc_limpio}').")
-            if len(doc_limpio) != longitud_esperada:
-                raise ValueError(f"{nombre_doc} debe tener {longitud_esperada} dígitos, tiene {len(doc_limpio)} ('{doc_limpio}').")
-
-            validos += 1
-
-        except ValueError as e:
-            print(f"[Fila {numero} - {nombre_doc}]: {e}")
-
-    return validos
-
-
 def conteo_documentos(df):
-    resultado = {"Con DNI": 0, "Con RUC": 0}
+    """Valida por separado las columnas de DNI (8 dígitos) y RUC (11 dígitos)."""
+    resultado = {"Con DNI": 0, "Con RUC": 0, "Documentos Inválidos": 0}
     try:
         validar_dataframe(df)
 
-        # Busca automáticamente la columna que contenga 'dni' y la que contenga 'ruc'
         col_dni = next((col for col in df.columns if "dni" in col.lower()), None)
         col_ruc = next((col for col in df.columns if "ruc" in col.lower()), None)
 
-        if col_dni:
-            resultado["Con DNI"] = validar_documento_serie(df[col_dni], 8, "DNI")
-        else:
-            print(f"[Error conteo_documentos]: No se encontró columna de DNI. Columnas disponibles: {list(df.columns)}")
+        if not col_dni and not col_ruc:
+            raise KeyError(f"No se encontraron columnas de DNI ni RUC. Columnas disponibles: {list(df.columns)}")
 
-        if col_ruc:
-            resultado["Con RUC"] = validar_documento_serie(df[col_ruc], 11, "RUC")
-        else:
-            print(f"[Error conteo_documentos]: No se encontró columna de RUC. Columnas disponibles: {list(df.columns)}")
+        for col, longitud, clave in [(col_dni, 8, "Con DNI"), (col_ruc, 11, "Con RUC")]:
+            if not col:
+                continue
 
+            for numero, valor in enumerate(df[col], start=2):
+                try:
+                    doc_limpio = limpiar_valor_celda(valor)
+                    if doc_limpio == "":
+                        continue
+
+                    if doc_limpio.endswith(".0"):
+                        doc_limpio = doc_limpio[:-2]
+                    doc_limpio = doc_limpio.rstrip(".")
+
+                    if not doc_limpio.isdigit():
+                        raise ValueError(f"Contiene letras o símbolos: '{doc_limpio}'")
+                    if len(doc_limpio) != longitud:
+                        raise ValueError(
+                            f"Debe tener {longitud} dígitos, tiene {len(doc_limpio)}: '{doc_limpio}'"
+                        )
+
+                    resultado[clave] += 1
+
+                except ValueError as e:
+                    print(f"[Fila {numero} - {col}]: {e}")
+                    resultado["Documentos Inválidos"] += 1
+
+    except KeyError as e:
+        print(f"[Error conteo_documentos]: {e}")
     except (TypeError, ValueError) as e:
         print(f"[Aviso conteo_documentos]: {e}")
 
@@ -151,8 +164,9 @@ def procesar_datos():
         "total_empresas": 0,
         "porcentaje_empresas": 0,
         "por_tipo": {},
+        "por_muestra": {},
         "dominios_correo": {},
-        "documentos": {"Con DNI": 0, "Con RUC": 0},
+        "documentos": {"Con DNI": 0, "Con RUC": 0, "Documentos Inválidos": 0},
         "columnas": []
     }
 
@@ -164,13 +178,10 @@ def procesar_datos():
         if not isinstance(datos, list) or len(datos) < 2:
             raise ValueError("La hoja no tiene suficientes filas (se requieren encabezados y al menos 1 registro).")
 
-        # Limpiamos espacios ocultos en los encabezados de Google Sheets
         encabezados = [str(col).strip() for col in datos[0]]
         filas = datos[1:]
 
         df = pd.DataFrame(filas, columns=encabezados)
-        
-        # Eliminamos columnas vacías o basura si las hubiera
         df = df.loc[:, df.columns != ""]
 
         total = contar_registros(df)
@@ -184,7 +195,8 @@ def procesar_datos():
             "total_personas": total_personas,
             "total_empresas": total_empresas,
             "porcentaje_empresas": porcentaje_empresas,
-            "por_tipo": agrupar_por_tipo(df),
+            "por_tipo": agrupar_por_columna(df, "Tipo de Cliente"),
+            "por_muestra": agrupar_por_columna(df, "Tipo de Muestra"),
             "dominios_correo": agrupar_por_dominio_correo(df),
             "documentos": conteo_documentos(df),
             "columnas": list(df.columns)
@@ -192,8 +204,14 @@ def procesar_datos():
 
         return df, resumen
 
+    except KeyError as e:
+        print(f"[Error de columna en procesar_datos]: {e}")
+        return None, resumen_vacio
     except ValueError as e:
         print(f"[Error crítico de datos en procesar_datos]: {e}")
+        return None, resumen_vacio
+    except TypeError as e:
+        print(f"[Error de tipo de dato en procesar_datos]: {e}")
         return None, resumen_vacio
     except Exception as e:
         print(f"[Error inesperado en procesar_datos]: {type(e).__name__} - {e}")
@@ -202,7 +220,7 @@ def procesar_datos():
 
 if __name__ == "__main__":
     df, resumen = procesar_datos()
-    
+
     print("==========================================")
     print("      REPORTE DE ANÁLISIS DE DATOS        ")
     print("==========================================")
@@ -212,14 +230,14 @@ if __name__ == "__main__":
     print(f"📈 % Corporativo:     {resumen['porcentaje_empresas']}%")
     print("------------------------------------------")
     print("📊 Distribución por Tipo de Cliente:")
-    for tipo, cantidad in resumen['por_tipo'].items():
+    for tipo, cantidad in resumen["por_tipo"].items():
         print(f"   - {tipo}: {cantidad}")
     print("------------------------------------------")
     print("🆔 Documentos Ingresados:")
-    for doc, cantidad in resumen['documentos'].items():
+    for doc, cantidad in resumen["documentos"].items():
         print(f"   - {doc}: {cantidad}")
     print("==========================================")
-    
+
     print("\n==========================================")
     print("        VISTA PREVIA DE LA TABLA          ")
     print("==========================================")

@@ -22,6 +22,9 @@
                 <div class="badge-estado">
                     <span class="punto-vivo"></span> En vivo · Google Sheets
                 </div>
+                <a href="{{ url_for('dashboard') }}" style="background: rgba(255,255,255,0.18); color: #fff; padding: 0.35rem 0.85rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;" title="Sincronizar últimos datos desde Google Sheets">
+                    🔄 Actualizar Datos
+                </a>
                 <span class="usuario-activo">{{ usuario }}</span>
                 <a href="/logout" class="btn-salir">Cerrar sesión</a>
             </div>
@@ -363,7 +366,7 @@
                             {% else %}
                             <tr>
                                 <td colspan="7" style="text-align:center; padding: 1.5rem; color: #64748b;">
-                                    No hay muestras con estado "Rechazado" en Panel_Seguimiento.
+                                    No hay muestras con estado "Rechazado".
                                 </td>
                             </tr>
                             {% endfor %}

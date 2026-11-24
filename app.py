@@ -4,7 +4,6 @@ import plotly.graph_objects as go
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from analisis import procesar_datos
 from conexion_sheets import (
-    obtener_seguimiento,
     actualizar_seguimiento,
     exportar_a_hoja_calculo,
     rellenar_cadena_custodia
@@ -170,30 +169,19 @@ def descomponer_matrices(lista_registros):
 
 
 def construir_registros():
-    """Procesa y cruza Respuestas de Formulario con Panel_Seguimiento."""
+    """Procesa los registros directamente desde la hoja única (Respuestas de formulario 2)."""
     df, resumen = procesar_datos()
-    datos_seg = obtener_seguimiento()
-    mapa_seg = {}
-
-    if len(datos_seg) > 1:
-        for fila in datos_seg[1:]:
-            if len(fila) >= 7:
-                clave_fecha = str(fila[0]).strip()
-                estado = str(fila[6]).strip() if len(fila) > 6 else ""
-                obs = str(fila[7]).strip() if len(fila) > 7 else ""
-                notif = str(fila[8]).strip() if len(fila) > 8 else ""
-                mapa_seg[clave_fecha] = {
-                    "estado": estado,
-                    "observacion": obs,
-                    "notificacion": notif
-                }
 
     ip_pc = obtener_ip_red()
     registros = []
     if df is not None and not df.empty:
         for idx, row in df.iterrows():
-            tipo = str(row.get("Tipo de Cliente", "Persona")).strip()
             fecha = str(row.get("Marca temporal", "-")).strip()
+            # Ignorar filas fantasma que no tengan marca temporal
+            if not fecha or fecha == "-" or fecha.lower() == "nan":
+                continue
+
+            tipo = str(row.get("Tipo de Cliente", "Persona")).strip()
             correo = str(row.get("Correo Electrónico", "") or row.get("Dirección de correo electrónico", "")).strip()
             celular = str(row.get("Teléfono", "") or row.get("Celular", "") or row.get("Número de Celular", "")).strip()
             doc = "-"
@@ -224,10 +212,14 @@ def construir_registros():
             prov = str(row.get("Provincia", "")).strip()
             procedencia = f"{prov} · {distrito}".strip(" ·") if (prov or distrito) else "-"
 
-            seg = mapa_seg.get(fecha, {})
-            estado = seg.get("estado") or "En Proceso"
-            observacion = seg.get("observacion") or "Sin observaciones"
-            notificacion = seg.get("notificacion") or "Pendiente"
+            # Leer directamente las columnas W, X, Y de la misma hoja
+            estado_raw = str(row.get("Estado de la Muestra", "")).strip()
+            obs_raw = str(row.get("Observaciones / Motivo", "")).strip()
+            notif_raw = str(row.get("Última Notificación Enviada", "")).strip()
+
+            estado = estado_raw if (estado_raw and estado_raw.lower() != "nan") else "En Proceso"
+            observacion = obs_raw if (obs_raw and obs_raw.lower() != "nan") else "Sin observaciones"
+            notificacion = notif_raw if (notif_raw and notif_raw.lower() != "nan") else "Pendiente"
             reg_id = idx + 1
 
             registros.append({
@@ -315,9 +307,9 @@ def dashboard():
 
     df, resumen, registros = construir_registros()
 
-    total_registros = resumen.get("total_registros", 0)
-    total_personas = resumen.get("total_personas", 0)
-    total_empresas = resumen.get("total_empresas", 0)
+    total_registros = len(registros)
+    total_personas = sum(1 for r in registros if r["tipo"] != "Empresa")
+    total_empresas = sum(1 for r in registros if r["tipo"] == "Empresa")
 
     tarjetas_matrices, total_ensayos, graf_mat_barras, graf_mat_dona = descomponer_matrices(registros)
 
