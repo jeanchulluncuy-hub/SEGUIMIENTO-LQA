@@ -250,7 +250,11 @@ def procesar_datos():
             raise ValueError("La hoja no tiene suficientes filas (se requieren encabezados y al menos 1 registro).")
 
         encabezados = [str(col).strip() for col in datos[0]]
-        filas = [f for f in datos[1:] if any(str(celda).strip() != "" for celda in f)]
+        # Filtra filas residuales: exige que tenga datos en las primeras columnas del formulario (A:F)
+        filas = [
+            f for f in datos[1:]
+            if len(f) > 2 and any(str(celda).strip() != "" for celda in f[:6])
+        ]
 
         if not filas:
             raise ValueError("Todas las filas recuperadas están vacías.")
